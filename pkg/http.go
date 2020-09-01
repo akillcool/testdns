@@ -1,0 +1,60 @@
+package pkg
+
+import (
+	"crypto/tls"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/golang/glog"
+)
+
+func GetOBSFile(url *string, timeout *int) error {
+	glog.Info("start to download...")
+	client := TestHTTPClient(timeout)
+	request, err := http.NewRequest(http.MethodGet, *url, nil)
+	if err != nil {
+		glog.Error(err)
+		return err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		glog.Error(err)
+		return err
+	}
+	defer response.Body.Close()
+	out, err2 := os.Create("download.file")
+	if err2 != nil {
+		glog.Error(err2)
+		return err2
+	}
+	defer out.Close()
+	_, err3 := io.Copy(out, response.Body)
+	if err3 != nil {
+		glog.Error(err3)
+		return err3
+	}
+
+	glog.Info("finish download!")
+	return nil
+}
+
+func TestHTTPClient(timeout *int) http.Client {
+	t := int32(*timeout)
+	return http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout:   time.Duration(t) * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).Dial,
+			TLSHandshakeTimeout:   10 * time.Second,
+			MaxIdleConnsPerHost:   200,
+			ResponseHeaderTimeout: 120 * time.Second,
+			TLSClientConfig: &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: true},
+		},
+	}
+}
