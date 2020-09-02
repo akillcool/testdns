@@ -19,19 +19,30 @@ func GetOBSFile(url *string, timeout *int) error {
 		glog.Error(err)
 		return err
 	}
-	response, err := client.Do(request)
-	if err != nil {
-		glog.Error(err)
-		return err
+
+	var reader io.ReadCloser
+	getIt := func() (bool, error) {
+		resp, err2 := client.Do(request)
+		if err2 != nil {
+			glog.Errorf("%v, will retry", err2)
+			return false, err2
+		}
+		reader = resp.Body
+		return true, nil
 	}
-	defer response.Body.Close()
+
+	retryErr := retry(6, getIt, 5*time.Second)
+	if retryErr != nil {
+		glog.Errorf("retry final error: %v", retryErr)
+	}
+
 	out, err2 := os.Create("download.file")
 	if err2 != nil {
 		glog.Error(err2)
 		return err2
 	}
 	defer out.Close()
-	_, err3 := io.Copy(out, response.Body)
+	_, err3 := io.Copy(out, reader)
 	if err3 != nil {
 		glog.Error(err3)
 		return err3
@@ -39,6 +50,23 @@ func GetOBSFile(url *string, timeout *int) error {
 
 	glog.Info("finish download!")
 	return nil
+}
+
+func retry(retryCount int, fn func() (bool, error), interval time.Duration) error {
+	var (
+		err error
+		ok  bool
+	)
+	for count := 0; count < retryCount; count++ {
+		ok, err = fn()
+		if ok {
+			return err
+		}
+		time.Sleep(interval)
+		glog.Warningf("retry count: %d", count+1)
+	}
+
+	return err
 }
 
 func TestHTTPClient(timeout *int) http.Client {
